@@ -1,9 +1,15 @@
+import os
+import sys
 import pandas as pd
 import pyautogui
 import argparse
+import time
+from image_verification import find_pids_already_extracted, verify_rapid_presence
 
 pyautogui.FAILSAFE = True
-pyautogui.PAUSE = 1
+
+SLEEP_TIME = 10
+WAIT_FOR_DOWNLOAD_TIME = 30
 
 JUSTIFICATION = 'CCER2016-01445'
 
@@ -22,59 +28,177 @@ COORDINATES = {
     'close_patient_button': (653, 291)
 }
 
-def extract_patient(patient_id):
+def extract_patient(patient_id, 
+                    dicom_db_path,
+                    output_dir,
+                    delete_unused=False,
+                    safe_mode=True,
+                    verbose=False):
+    
+    verify_modal_failsafe(safe_mode=safe_mode)
     print(f'Extracting data for patient {patient_id}...')
     # 0. focus on window, click on search bar and initialise
+    if verbose:
+        print(f'Focusing on the window and initialising search...')
     pyautogui.click(COORDINATES['window'])
+    verify_modal_failsafe(safe_mode=safe_mode)
+
     pyautogui.click(COORDINATES['search_bar'])
+    verify_modal_failsafe(safe_mode=safe_mode)
     pyautogui.click(COORDINATES['reinitialise'])
 
     # 1. click on patient id field
+    if verbose:
+        print(f'Clicking on patient ID field')
+    verify_modal_failsafe(safe_mode=safe_mode)
     pyautogui.click(COORDINATES['patient_id_field'])
 
     # 2. enter patient id
+    if verbose:
+        print(f'Entering patient ID')
+    verify_modal_failsafe(safe_mode=safe_mode)
     pyautogui.typewrite(str(patient_id))
 
     # 3. click on search button
+    if verbose:
+        print(f'Clicking on search button')
+    verify_modal_failsafe(safe_mode=safe_mode)
     pyautogui.click(COORDINATES['search_button'])
 
     # 4. click on justification field
+    if verbose:
+        print(f'Clicking on justification field')
+    verify_modal_failsafe(safe_mode=safe_mode)
     pyautogui.click(COORDINATES['justification_field'])
 
     # 5. enter justification
+    if verbose:
+        print(f'Entering justification')
+    verify_modal_failsafe(safe_mode=safe_mode)
     pyautogui.typewrite(JUSTIFICATION)
 
     # 6. click on validation
+    if verbose:
+        print(f'Clicking on validation button')
+    verify_modal_failsafe(safe_mode=safe_mode)
     pyautogui.click(COORDINATES['validation_button'])
 
     # 7. click on all imaging data
+    if verbose:
+        print(f'Clicking on all imaging data button')
+    verify_modal_failsafe(safe_mode=safe_mode)
     pyautogui.click(COORDINATES['all_imaging_data_button'])
 
     # 8. click on export button
+    if verbose:
+        print(f'Clicking on export button')
+    verify_modal_failsafe(safe_mode=safe_mode)
     pyautogui.click(COORDINATES['export_button'])
 
     # 9. click on transfer button
+    if verbose:
+        print(f'Clicking on transfer button')
+    verify_modal_failsafe(safe_mode=safe_mode)
     pyautogui.click(COORDINATES['transfer_button'])
 
     # 10. click on export button
+    if verbose:
+        print(f'Clicking on confirm transfer button')
+    verify_modal_failsafe(safe_mode=safe_mode)
     pyautogui.click(COORDINATES['confirm_transfer_button'])
 
+    # wait for transfer dialog to disappear (sleep)
+    time.sleep(SLEEP_TIME)
+
     # 11. close patient window
+    if verbose:
+        print(f'Clicking on close patient button')
+    verify_modal_failsafe(safe_mode=safe_mode)
     pyautogui.click(COORDINATES['close_patient_button'])
 
+    time.sleep(WAIT_FOR_DOWNLOAD_TIME)
 
-def extract_n_patients(number_of_patients_to_extract, target_patients_path):
+    rapid_found = verify_rapid_presence(
+        pid=patient_id,
+        dicom_db_path=dicom_db_path,
+        output_dir=output_dir,
+        delete_unused=delete_unused,
+        verbose=verbose
+    )
+
+    return rapid_found
+
+
+def verify_modal_failsafe(safe_mode=True):
+    if not safe_mode:
+        return
+    if verify_modal_presence():
+        sys.exit("Error message")
+
+
+def verify_modal_presence():
+    """
+    Verify if a modal dialog is present on the screen.
+    """
+    # modals to verify 
+    # check all png files in modal directory (current file is in the same directory as the modal directory)
+    current_file_directory = os.path.dirname(os.path.abspath(__file__))
+    modal_directory = os.path.join(current_file_directory, 'modals')
+    modal_files = [f for f in os.listdir(modal_directory) if f.endswith('.png')]
+    for modal_file in modal_files:
+        modal_path = os.path.join(modal_directory, modal_file)
+        try:
+            if pyautogui.locateOnScreen(modal_path) is not None:
+                print(f'Modal dialog {modal_file} is present on the screen.')
+                return True
+        except Exception as e:
+            pass  # If the image is not found, continue to the next one
+
+    return False
+
+
+def extract_n_patients(number_of_patients_to_extract, target_patients_path,
+                       dicom_db_path, output_dir, delete_unused, already_extracted_list_path=None, 
+                       safe_mode=True, verbose=False):
     target_list = pd.read_csv(target_patients_path)
+    
+    if already_extracted_list_path is not None:
+        already_extracted_df = pd.read_csv(already_extracted_list_path)
+        target_list = target_list[~target_list['patient_id'].isin(already_extracted_df['patient_id'])]
+    else:
+        already_extracted_list_path = os.path.join(os.path.dirname(target_patients_path), 'already_extracted.csv')
+        already_extracted_df = pd.DataFrame()
 
-    extracted_patients = []
+    found_pids = find_pids_already_extracted(dicom_db_path, output_dir, delete_unused, verbose)
+    target_list = target_list[~target_list['patient_id'].isin(found_pids)]
+    # add found pids to already_extracted_df
+    for pid in found_pids:
+        already_extracted_df = pd.concat([already_extracted_df, pd.DataFrame({'patient_id': [pid]})], ignore_index=True)
+    already_extracted_df = already_extracted_df.drop_duplicates(subset=['patient_id'])
+    already_extracted_df.to_csv(already_extracted_list_path, index=False)
+
     for pidx in range(number_of_patients_to_extract):
         if pidx > number_of_patients_to_extract - 1:
             break
-        patient_id = target_list['patient_id'].iloc[pidx]
-        patient_data = extract_patient(patient_id)
-        extracted_patients.append(patient_data)
 
-    return extracted_patients
+        # patient_id = target_list['patient_id'].iloc[pidx]
+        # random sample patient_id
+        patient_id = target_list['patient_id'].sample(n=1).values[0]
+
+        patient_data_confirmation = extract_patient(patient_id, 
+                                       dicom_db_path=dicom_db_path,
+                                       output_dir=output_dir,
+                                       delete_unused=delete_unused,
+                                       safe_mode=safe_mode,
+                                       verbose=verbose)
+        
+        if patient_data_confirmation:
+            already_extracted_df = pd.concat([already_extracted_df, pd.DataFrame({'patient_id': [patient_id]})], ignore_index=True)
+            # drop duplicate patient_ids
+            already_extracted_df = already_extracted_df.drop_duplicates(subset=['patient_id'])
+            already_extracted_df.to_csv(already_extracted_list_path, index=False)
+
+    return already_extracted_df
 
 
 def main():
@@ -83,13 +207,41 @@ def main():
                         help='Number of patients to extract')
     parser.add_argument('-t', '--target_patients_path', type=str, required=True,
                         help='Path to the CSV file containing target patients')
-
+    parser.add_argument('-d', '--dicom_db_path', type=str, required=True,
+                        help='Path to the DICOM database')
+    parser.add_argument('-o', '--output_dir', type=str, required=True,
+                        help='Path to the output directory')
+    parser.add_argument('-r', '--delete_unused', action='store_true',
+                        help='Delete unused DICOM files')
+    parser.add_argument('-v', '--verbose', action='store_true',
+                        help='Enable verbose output')
+    parser.add_argument('-s', '--safe_mode', action='store_true',
+                        help='Enable safe mode')
     args = parser.parse_args()
 
     # show instructions on how to exit the pyautogui script
     print("To stop the script, move your mouse to the top-left corner of the screen.")
 
-    extracted_patients = extract_n_patients(args.number_of_patients_to_extract, args.target_patients_path)
+    # show modal dialog with instructions
+    pyautogui.alert(text='To stop the script, move your mouse to the top-left corner of the screen.',
+                    title='Instructions', button='OK')
+
+    if args.safe_mode:
+        pyautogui.PAUSE = 0.1
+    else:
+        pyautogui.PAUSE = 0.7
+
+    already_extracted_list_path = None
+    if os.path.isfile(os.path.join(os.path.dirname(args.target_patients_path), 'already_extracted.csv')):
+        already_extracted_list_path = os.path.join(os.path.dirname(args.target_patients_path), 'already_extracted.csv')
+
+    extracted_patients = extract_n_patients(args.number_of_patients_to_extract, args.target_patients_path,
+                                            dicom_db_path=args.dicom_db_path,
+                                            output_dir=args.output_dir,
+                                            already_extracted_list_path=already_extracted_list_path,
+                                            delete_unused=args.delete_unused,
+                                            safe_mode=args.safe_mode,
+                                            verbose=args.verbose)
     print(f'Extracted {len(extracted_patients)} patients.')
 
 if __name__ == '__main__':
