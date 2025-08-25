@@ -8,12 +8,19 @@ from image_verification import find_pids_already_extracted, verify_rapid_presenc
 
 pyautogui.FAILSAFE = True
 
+SINGLE_MODALITY = True
+
 SLEEP_TIME = 10
 WAIT_FOR_DOWNLOAD_TIME = 30
 
+if SINGLE_MODALITY:
+    WAIT_FOR_DOWNLOAD_TIME = 0
+
 JUSTIFICATION = 'CCER2016-01445'
 
+
 COORDINATES = {
+    "reference": (378, 177), # reference of close window cross 
     'window': (1000, 236),
     'search_bar': (421, 293),  # coordinates for the search bar
     'reinitialise': (527, 585),
@@ -23,7 +30,9 @@ COORDINATES = {
     'justification_field': (918, 683),  # coordinates for the justification field
     'validation_button': (1399, 760),  # coordinates for the validation button
     'all_imaging_data_button': (376, 462),  # coordinates for the all imaging data button
+    'single_modality_all_imaging_data_button': (371, 675),  # coordinates for the all imaging data button in single modality
     'export_button': (432, 424),  # coordinates for the export button
+    "single_modality_export_button": (428, 639),  # coordinates for the export button in single modality
     'transfer_button': (1243, 693),
     'confirm_transfer_button': (1212, 729),
     'close_patient_button': (653, 291)
@@ -60,13 +69,14 @@ def extract_patient(patient_id,
     verify_modal_failsafe(safe_mode=safe_mode)
     pyautogui.typewrite(str(patient_id))
 
-    # 3. enter modality
-    if verbose:
-        print('Specifying modality')
-    verify_modal_failsafe(safe_mode=safe_mode)
-    pyautogui.click(COORDINATES['modality_field'])
-    pyautogui.typewrite('CT')
-    pyautogui.press('enter')
+    if SINGLE_MODALITY:
+        # 3. enter modality
+        if verbose:
+            print('Specifying modality')
+        verify_modal_failsafe(safe_mode=safe_mode)
+        pyautogui.click(COORDINATES['modality_field'])
+        pyautogui.typewrite('CT')
+        pyautogui.press('enter')
 
     # 4. click on search button
     if verbose:
@@ -74,35 +84,44 @@ def extract_patient(patient_id,
     verify_modal_failsafe(safe_mode=safe_mode)
     pyautogui.click(COORDINATES['search_button'])
 
-    # 5. click on justification field
-    if verbose:
-        print(f'Clicking on justification field')
-    verify_modal_failsafe(safe_mode=safe_mode)
-    pyautogui.click(COORDINATES['justification_field'])
+    if SINGLE_MODALITY:
+        # click on all imaging data button
+        if verbose:
+            print(f'Clicking on all imaging data button')
+        verify_modal_failsafe(safe_mode=safe_mode)
+        pyautogui.click(COORDINATES['single_modality_all_imaging_data_button'])
+        pyautogui.click(COORDINATES['single_modality_export_button'])
 
-    # 6. enter justification
-    if verbose:
-        print(f'Entering justification')
-    verify_modal_failsafe(safe_mode=safe_mode)
-    pyautogui.typewrite(JUSTIFICATION)
+    else:
+        # 5. click on justification field
+        if verbose:
+            print(f'Clicking on justification field')
+        verify_modal_failsafe(safe_mode=safe_mode)
+        pyautogui.click(COORDINATES['justification_field'])
 
-    # 7. click on validation
-    if verbose:
-        print(f'Clicking on validation button')
-    verify_modal_failsafe(safe_mode=safe_mode)
-    pyautogui.click(COORDINATES['validation_button'])
+        # 6. enter justification
+        if verbose:
+            print(f'Entering justification')
+        verify_modal_failsafe(safe_mode=safe_mode)
+        pyautogui.typewrite(JUSTIFICATION)
 
-    # 8. click on all imaging data
-    if verbose:
-        print(f'Clicking on all imaging data button')
-    verify_modal_failsafe(safe_mode=safe_mode)
-    pyautogui.click(COORDINATES['all_imaging_data_button'])
+        # 7. click on validation
+        if verbose:
+            print(f'Clicking on validation button')
+        verify_modal_failsafe(safe_mode=safe_mode)
+        pyautogui.click(COORDINATES['validation_button'])
 
-    # 9. click on export button
-    if verbose:
-        print(f'Clicking on export button')
-    verify_modal_failsafe(safe_mode=safe_mode)
-    pyautogui.click(COORDINATES['export_button'])
+        # 8. click on all imaging data
+        if verbose:
+            print(f'Clicking on all imaging data button')
+        verify_modal_failsafe(safe_mode=safe_mode)
+        pyautogui.click(COORDINATES['all_imaging_data_button'])
+
+        # 9. click on export button
+        if verbose:
+            print(f'Clicking on export button')
+        verify_modal_failsafe(safe_mode=safe_mode)
+        pyautogui.click(COORDINATES['export_button'])
 
     # 10. click on transfer button
     if verbose:
@@ -116,14 +135,15 @@ def extract_patient(patient_id,
     verify_modal_failsafe(safe_mode=safe_mode)
     pyautogui.click(COORDINATES['confirm_transfer_button'])
 
-    # wait for transfer dialog to disappear (sleep)
-    time.sleep(SLEEP_TIME)
-
-    # 12. close patient window
-    if verbose:
-        print(f'Clicking on close patient button')
-    verify_modal_failsafe(safe_mode=safe_mode)
-    pyautogui.click(COORDINATES['close_patient_button'])
+    if not SINGLE_MODALITY:
+        # wait for transfer dialog to disappear (sleep)
+        time.sleep(SLEEP_TIME)
+    
+        # 12. close patient window
+        if verbose:
+            print(f'Clicking on close patient button')
+        verify_modal_failsafe(safe_mode=safe_mode)
+        pyautogui.click(COORDINATES['close_patient_button'])
 
     time.sleep(WAIT_FOR_DOWNLOAD_TIME)
 
@@ -176,16 +196,39 @@ def extract_n_patients(number_of_patients_to_extract, target_patients_path,
         target_list = target_list[~target_list['patient_id'].isin(already_extracted_df['patient_id'])]
     else:
         already_extracted_list_path = os.path.join(os.path.dirname(target_patients_path), 'already_extracted.csv')
-        already_extracted_df = pd.DataFrame()
+        if os.path.isfile(already_extracted_list_path):
+            already_extracted_df = pd.read_csv(already_extracted_list_path)
+            target_list = target_list[~target_list['patient_id'].isin(already_extracted_df['patient_id'])]
+        else:
+            already_extracted_df = pd.DataFrame()
 
     # find all pids already extracted in the dicom_db_path and copy their files to output_dir
     found_pids = find_pids_already_extracted(dicom_db_path, output_dir, delete_unused, verbose)
     target_list = target_list[~target_list['patient_id'].isin(found_pids)]
     # add found pids to already_extracted_df
     for pid in found_pids:
-        already_extracted_df = pd.concat([already_extracted_df, pd.DataFrame({'patient_id': [pid]})], ignore_index=True)
+        # if pid already in already_extracted_df, drop previous entry
+        already_extracted_df = already_extracted_df[already_extracted_df['patient_id'] != pid]
+        already_extracted_df = pd.concat([already_extracted_df, pd.DataFrame({'patient_id': [pid], 
+                                                                              'RAPID_found': [True]})], ignore_index=True)
     already_extracted_df = already_extracted_df.drop_duplicates(subset=['patient_id'])
     already_extracted_df.to_csv(already_extracted_list_path, index=False)
+
+    if delete_unused:
+        # delete all subfolders in dicom_db_path 
+        for subfolder in os.listdir(dicom_db_path):
+            subfolder_path = os.path.join(dicom_db_path, subfolder)
+            if os.path.isdir(subfolder_path):
+                try:
+                    os.rmdir(subfolder_path)
+                except OSError as e:
+                    if verbose:
+                        print(f"Error deleting folder {subfolder_path}: {e}")
+    
+    if verbose:
+        # print number of patients already extracted, and number of patients to extract
+        print(f'Number of patients already extracted: {len(already_extracted_df)}')
+        print(f'Number of patients to extract: {len(target_list)}')
 
     for pidx in range(number_of_patients_to_extract):
         if pidx > number_of_patients_to_extract - 1:
@@ -202,11 +245,11 @@ def extract_n_patients(number_of_patients_to_extract, target_patients_path,
                                        safe_mode=safe_mode,
                                        verbose=verbose)
         
-        if patient_data_confirmation:
-            already_extracted_df = pd.concat([already_extracted_df, pd.DataFrame({'patient_id': [patient_id]})], ignore_index=True)
-            # drop duplicate patient_ids
-            already_extracted_df = already_extracted_df.drop_duplicates(subset=['patient_id'])
-            already_extracted_df.to_csv(already_extracted_list_path, index=False)
+        already_extracted_df = pd.concat([already_extracted_df, pd.DataFrame({'patient_id': [patient_id], 
+                                                                              'RAPID_found': [bool(patient_data_confirmation)]})], ignore_index=True)
+        # drop duplicate patient_ids
+        already_extracted_df = already_extracted_df.drop_duplicates(subset=['patient_id'])
+        already_extracted_df.to_csv(already_extracted_list_path, index=False)
 
     return already_extracted_df
 
@@ -239,7 +282,7 @@ def main():
     if args.safe_mode:
         pyautogui.PAUSE = 0.1
     else:
-        pyautogui.PAUSE = 0.7
+        pyautogui.PAUSE = 0.5
 
     already_extracted_list_path = None
     if os.path.isfile(os.path.join(os.path.dirname(args.target_patients_path), 'already_extracted.csv')):

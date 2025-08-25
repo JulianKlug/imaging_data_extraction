@@ -54,8 +54,9 @@ def verify_rapid_presence(pid, dicom_db_path, output_dir, delete_unused=False, v
             if file.endswith('.dcm'):
                 file_path = os.path.join(root, file)
                 try:
-                    ds = pydicom.dcmread(file_path)
-                    if ds.PatientID == pid:
+                    ds_pid = pydicom.dcmread(file_path, stop_before_pixels=True)
+                    if ds_pid.PatientID == pid:
+                        ds = pydicom.dcmread(file_path)
                         if verbose:
                             print(f"Found DICOM file for patient {pid} at {file_path}")
 
@@ -70,8 +71,8 @@ def verify_rapid_presence(pid, dicom_db_path, output_dir, delete_unused=False, v
                         else:
                             if verbose:
                                 print(f"File {file_path} does not meet RAPID criteria for patient {pid}")
-                            if delete_unused:
-                                os.remove(file_path)
+                        if delete_unused:
+                            os.remove(file_path)
 
                 except Exception as e:
                     print(f"Error reading {file_path}: {e}")
