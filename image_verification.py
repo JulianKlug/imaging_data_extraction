@@ -103,9 +103,8 @@ def find_pids_already_extracted(dicom_db_path, output_dir, delete_unused=False, 
                         shutil.copy(file_path, output_dir)
                         if verbose:
                             print(f"RAPID file identified for patient {pid}: {file_path}")
-                    else:
-                        if delete_unused:
-                            os.remove(file_path)
+                    if delete_unused:
+                        os.remove(file_path)
                 except Exception as e:
                     if verbose:
                         print(f"Error reading {file_path}: {e}")
