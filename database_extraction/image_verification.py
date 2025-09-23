@@ -90,7 +90,8 @@ def find_pids_already_extracted(dicom_db_path, output_dir, delete_unused=False, 
     if verbose:
         print(f"Searching for already extracted patient IDs in {dicom_db_path}...")
 
-    pids = []
+    pids_with_rapid = []
+    pids_screened = set()
     for root, dirs, files in os.walk(dicom_db_path):
         for file in files:
             if file.endswith('.dcm'):
@@ -98,8 +99,9 @@ def find_pids_already_extracted(dicom_db_path, output_dir, delete_unused=False, 
                 try:
                     ds = pydicom.dcmread(file_path)
                     pid = ds.PatientID
-                    if is_rapid_file(ds):
-                        pids.append(pid)
+                    pids_screened.add(pid)
+                    if pids_with_rapid(ds):
+                        pids_with_rapid.append(pid)
                         # copy the file to output_dir
                         shutil.copy(file_path, output_dir)
                         if verbose:
@@ -110,9 +112,10 @@ def find_pids_already_extracted(dicom_db_path, output_dir, delete_unused=False, 
                     if verbose:
                         print(f"Error reading {file_path}: {e}")
     # Remove duplicates
-    pids = list(set(pids))
+    pids_with_rapid = list(set(pids_with_rapid))
+    pids_without_rapid = pids_screened - set(pids_with_rapid)
 
     if verbose:
-        print(f"Found {len(pids)} unique patient IDs with RAPID files in {dicom_db_path}.")
+        print(f"Found {len(pids_with_rapid)} unique patient IDs with RAPID files in {dicom_db_path}.")
 
-    return pids
+    return pids_with_rapid, pids_without_rapid
