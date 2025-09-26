@@ -5,6 +5,7 @@ import pyautogui
 import argparse
 import time
 from image_verification import find_pids_already_extracted, verify_rapid_presence
+from list_open_windows_mac import list_open_windows
 
 pyautogui.FAILSAFE = True
 
@@ -12,6 +13,11 @@ SINGLE_MODALITY = True
 
 SLEEP_TIME = 10
 WAIT_FOR_DOWNLOAD_TIME = 30
+WAIT_BEFORE_SEARCH_TIME = 0.5
+WAIT_BEFORE_SELECT_ALL_TIME = 0.5
+WAIT_EVERY_5_PATIENTS = 180
+DEFAULT_PYAUTOGUI_PAUSE = 0.6
+SAFE_MODE_PYAUTOGUI_PAUSE = 0.1
 
 if SINGLE_MODALITY:
     WAIT_FOR_DOWNLOAD_TIME = 0
@@ -46,6 +52,9 @@ def extract_patient(patient_id,
                     safe_mode=True,
                     verbose=False):
     
+    # verify that osirix is open
+    ensure_osirix_open()
+
     verify_modal_failsafe(safe_mode=safe_mode)
     print(f'Extracting data for patient {patient_id}...')
     # 0. focus on window, click on search bar and initialise
@@ -80,6 +89,7 @@ def extract_patient(patient_id,
         pyautogui.press('enter')
 
     # 4. click on search button
+    time.sleep(WAIT_BEFORE_SEARCH_TIME)
     if verbose:
         print(f'Clicking on search button')
     verify_modal_failsafe(safe_mode=safe_mode)
@@ -87,6 +97,7 @@ def extract_patient(patient_id,
 
     if SINGLE_MODALITY:
         # click on all imaging data button
+        time.sleep(WAIT_BEFORE_SELECT_ALL_TIME)
         if verbose:
             print(f'Clicking on all imaging data button')
         verify_modal_failsafe(safe_mode=safe_mode)
@@ -150,17 +161,24 @@ def extract_patient(patient_id,
         pyautogui.click(COORDINATES['close_patient_button'])
 
     time.sleep(WAIT_FOR_DOWNLOAD_TIME)
+  
+    return None
+  #  rapid_found = verify_rapid_presence(
+  #      pid=patient_id,
+  #      dicom_db_path=dicom_db_path,
+  #      output_dir=output_dir,
+  #      delete_unused=delete_unused,
+  #      verbose=verbose
+  #  )
 
-    rapid_found = verify_rapid_presence(
-        pid=patient_id,
-        dicom_db_path=dicom_db_path,
-        output_dir=output_dir,
-        delete_unused=delete_unused,
-        verbose=verbose
-    )
+  #  return rapid_found
 
-    return rapid_found
-
+def ensure_osirix_open():
+    windows = list_open_windows()
+    osirix_windows = [w for w in windows if w[0] == "OsiriX MD"]    
+    if len(osirix_windows) < 2:
+        raise Exception('Osirix or Compacs are not open!')
+    return 
 
 def verify_modal_failsafe(safe_mode=True):
     if not safe_mode:
@@ -219,7 +237,7 @@ def extract_n_patients(number_of_patients_to_extract, target_patients_path,
         if pid in already_extracted_df['patient_id'].values:
             continue
         already_extracted_df = pd.concat([already_extracted_df, pd.DataFrame({'patient_id': [pid], 
-                                                                              'RAPID_found': [False]})], ignore_index=True)
+                                                                              'RAPID_found': [0]})], ignore_index=True)
 
     already_extracted_df = already_extracted_df.drop_duplicates(subset=['patient_id'])
     already_extracted_df.to_csv(already_extracted_list_path, index=False)
@@ -240,6 +258,7 @@ def extract_n_patients(number_of_patients_to_extract, target_patients_path,
         print(f'Number of patients already extracted: {len(already_extracted_df)}')
         print(f'Number of patients to extract: {len(target_list)}')
 
+    iteration_counter = 0
     for pidx in range(number_of_patients_to_extract):
         if pidx > number_of_patients_to_extract - 1:
             break
@@ -254,6 +273,11 @@ def extract_n_patients(number_of_patients_to_extract, target_patients_path,
                                        delete_unused=delete_unused,
                                        safe_mode=safe_mode,
                                        verbose=verbose)
+        iteration_counter += 1
+        if iteration_counter == 5:
+            print(f'Waiting {WAIT_EVERY_5_PATIENTS}s every 5 patients...')
+            iteration_counter = 0
+            time.sleep(WAIT_EVERY_5_PATIENTS)
         
         # already_extracted_df = pd.concat([already_extracted_df, pd.DataFrame({'patient_id': [patient_id], 
         #                                                                       'RAPID_found': [bool(patient_data_confirmation)]})], ignore_index=True)
@@ -290,9 +314,9 @@ def main():
                     title='Instructions', button='OK')
 
     if args.safe_mode:
-        pyautogui.PAUSE = 0.1
+        pyautogui.PAUSE = SAFE_MODE_PYAUTOGUI_PAUSE
     else:
-        pyautogui.PAUSE = 0.5
+        pyautogui.PAUSE = DEFAULT_PYAUTOGUI_PAUSE
 
     already_extracted_list_path = None
     if os.path.isfile(os.path.join(os.path.dirname(args.target_patients_path), 'already_extracted.csv')):

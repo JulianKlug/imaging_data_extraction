@@ -97,10 +97,10 @@ def find_pids_already_extracted(dicom_db_path, output_dir, delete_unused=False, 
             if file.endswith('.dcm'):
                 file_path = os.path.join(root, file)
                 try:
-                    ds = pydicom.dcmread(file_path)
+                    ds = pydicom.filereader.dcmread(file_path, stop_before_pixels=True)
                     pid = ds.PatientID
                     pids_screened.add(pid)
-                    if pids_with_rapid(ds):
+                    if is_rapid_file(ds):
                         pids_with_rapid.append(pid)
                         # copy the file to output_dir
                         shutil.copy(file_path, output_dir)
