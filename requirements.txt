@@ -1,0 +1,17 @@
+# Perfusion parameter extraction requirements
+pydicom>=2.3.0
+numpy>=1.21.0
+opencv-python>=4.5.0
+Pillow>=8.3.0
+pytesseract>=0.3.10
+pandas>=1.3.0
+pylibjpeg>=1.4.0
+
+# Database extraction requirements
+pyautogui>=0.9.54
+
+# System requirements:
+# - Tesseract OCR must be installed separately
+#   macOS: brew install tesseract
+#   Ubuntu/Debian: sudo apt-get install tesseract-ocr
+#   Windows: Download from https://github.com/UB-Mannheim/tesseract/wiki
