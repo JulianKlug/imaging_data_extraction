@@ -40,6 +40,7 @@ def extract_perfusion_parameters(folder_path: str,
     When output_format='dataframe', the result includes columns:
     - patient_id: DICOM PatientID field
     - file_path: path to the DICOM file  
+    - acquisition_date: DICOM acquisition/study/series date
     - parameter_type: 'CBF', 'Tmax', or 'CBV'
     - threshold: parameter threshold (e.g., '<20%', '>6s', '<2.0ml/100g')
     - volume: measured volume value
@@ -84,7 +85,7 @@ def extract_perfusion_parameters(folder_path: str,
     if output_format == 'dataframe':
         result = _convert_to_dataframe(extracted_data)
         # Drop duplicate rows to remove OCR duplicates
-        result = result.drop_duplicates(subset=['patient_id', 'file_path', 'parameter_type', 'threshold', 'volume'], keep='first')
+        result = result.drop_duplicates(subset=['patient_id', 'acquisition_date', 'parameter_type', 'threshold', 'volume'], keep='first')
         # Drop rows with empty or NaN volume values
         result = result.dropna(subset=['volume'])
         result = result[result['volume'] != '']  # Also remove empty strings
@@ -114,6 +115,7 @@ def extract_single_file_perfusion_params(file_path: str) -> Dict[str, Any]:
     Dict containing:
     - file_info: basic file information
     - patient_id: DICOM PatientID field
+    - acquisition_date: DICOM acquisition/study/series date
     - cbf_parameters: list of CBF measurements with thresholds and volumes
     - tmax_parameters: list of Tmax measurements with thresholds and volumes
     - cbv_parameters: list of CBV measurements with thresholds and volumes
@@ -130,11 +132,22 @@ def extract_single_file_perfusion_params(file_path: str) -> Dict[str, Any]:
     except Exception as e:
         print(f"Warning: Could not extract PatientID from {file_path}: {e}")
     
+    # Extract acquisition date
+    acquisition_date = None
+    try:
+        if hasattr(ds, 'AcquisitionDate') and ds.AcquisitionDate:
+            acquisition_date = str(ds.AcquisitionDate)
+        elif hasattr(ds, 'StudyDate') and ds.StudyDate:
+            acquisition_date = str(ds.StudyDate)
+        elif hasattr(ds, 'SeriesDate') and ds.SeriesDate:
+            acquisition_date = str(ds.SeriesDate)
+    except Exception as e:
+        print(f"Warning: Could not extract acquisition date from {file_path}: {e}")
+    
     result = {
         'file_path': file_path,
         'patient_id': patient_id,
-        'file_size_bytes': os.path.getsize(file_path),
-        'image_shape': None,
+        'acquisition_date': acquisition_date,
         'cbf_parameters': [],
         'tmax_parameters': [],
         'cbv_parameters': [],
@@ -150,7 +163,6 @@ def extract_single_file_perfusion_params(file_path: str) -> Dict[str, Any]:
     try:
         # Get pixel array and prepare for OCR
         pixel_array = ds.pixel_array
-        result['image_shape'] = pixel_array.shape
         
         # Prepare image for OCR with aggressive preprocessing for text extraction
         image = _prepare_image_for_perfusion_ocr(pixel_array)
@@ -378,8 +390,7 @@ def _convert_to_dataframe(data: Dict[str, Any]) -> pd.DataFrame:
         base_row = {
             'file_path': file_path,
             'patient_id': file_data.get('patient_id'),
-            'file_size_bytes': file_data.get('file_size_bytes'),
-            'image_shape': str(file_data.get('image_shape')),
+            'acquisition_date': file_data.get('acquisition_date'),
             'error': file_data.get('error')
         }
         
@@ -558,7 +569,7 @@ def main():
             
             if args.verbose:
                 print("\n📋 First 10 measurements:")
-                print(results[['patient_id', 'file_path', 'parameter_type', 'threshold', 'volume']].head(10))
+                print(results[['patient_id', 'acquisition_date', 'file_path', 'parameter_type', 'threshold', 'volume']].head(10))
                        
         if not args.quiet:
             print("\n✅ Extraction completed successfully!")
