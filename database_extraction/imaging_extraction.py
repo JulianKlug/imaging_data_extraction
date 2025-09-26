@@ -162,16 +162,7 @@ def extract_patient(patient_id,
 
     time.sleep(WAIT_FOR_DOWNLOAD_TIME)
   
-    return None
-  #  rapid_found = verify_rapid_presence(
-  #      pid=patient_id,
-  #      dicom_db_path=dicom_db_path,
-  #      output_dir=output_dir,
-  #      delete_unused=delete_unused,
-  #      verbose=verbose
-  #  )
-
-  #  return rapid_found
+    return 
 
 def ensure_osirix_open():
     windows = list_open_windows()
@@ -263,28 +254,21 @@ def extract_n_patients(number_of_patients_to_extract, target_patients_path,
         if pidx > number_of_patients_to_extract - 1:
             break
 
-        # patient_id = target_list['patient_id'].iloc[pidx]
         # random sample patient_id
         patient_id = target_list['patient_id'].sample(n=1).values[0]
 
-        patient_data_confirmation = extract_patient(patient_id, 
-                                       dicom_db_path=dicom_db_path,
-                                       output_dir=output_dir,
-                                       delete_unused=delete_unused,
-                                       safe_mode=safe_mode,
-                                       verbose=verbose)
+        extract_patient(patient_id, 
+                        dicom_db_path=dicom_db_path,
+                        output_dir=output_dir,
+                        delete_unused=delete_unused,
+                        safe_mode=safe_mode,
+                        verbose=verbose)
         iteration_counter += 1
         if iteration_counter == 5:
             print(f'Waiting {WAIT_EVERY_5_PATIENTS}s every 5 patients...')
             iteration_counter = 0
             time.sleep(WAIT_EVERY_5_PATIENTS)
         
-        # already_extracted_df = pd.concat([already_extracted_df, pd.DataFrame({'patient_id': [patient_id], 
-        #                                                                       'RAPID_found': [bool(patient_data_confirmation)]})], ignore_index=True)
-        # # drop duplicate patient_ids
-        # already_extracted_df = already_extracted_df.drop_duplicates(subset=['patient_id'])
-        # already_extracted_df.to_csv(already_extracted_list_path, index=False)
-
     return already_extracted_df 
 
 
