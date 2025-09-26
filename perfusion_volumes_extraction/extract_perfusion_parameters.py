@@ -28,7 +28,7 @@ def extract_perfusion_parameters(folder_path: str,
     save_to_file : bool
         Whether to save results to a file
     output_file : str, optional
-        Path for output file
+        Path for output file. If file exists, only new files will be processed and results appended.
     
     Returns:
     --------
@@ -45,28 +45,91 @@ def extract_perfusion_parameters(folder_path: str,
     - threshold: parameter threshold (e.g., '<20%', '>6s', '<2.0ml/100g')
     - volume: measured volume value
     - unit: measurement unit
+    
+    If an existing output file is provided, only files not already processed will be analyzed,
+    and results will be appended to the existing file.
     """
     
     if not os.path.exists(folder_path):
         raise ValueError(f"Folder path does not exist: {folder_path}")
     
+    # Check for existing output file and read already processed files
+    existing_data = pd.DataFrame()
+    processed_files = set()
+    processed_combinations = set()
+    
+    if save_to_file and output_file and os.path.exists(output_file):
+        try:
+            if output_file.endswith('.csv'):
+                existing_data = pd.read_csv(output_file)
+            elif output_file.endswith('.xlsx'):
+                existing_data = pd.read_excel(output_file)
+            
+            if not existing_data.empty:
+                # Create set of processed file paths (for backward compatibility)
+                if 'file_path' in existing_data.columns:
+                    processed_files = set(existing_data['file_path'].unique())
+                
+                # Create set of processed combinations (patient_id, acquisition_date, file_path)
+                # This is more robust for detecting duplicates
+                if all(col in existing_data.columns for col in ['patient_id', 'acquisition_date', 'file_path']):
+                    # Normalize the existing data first to ensure consistent string conversion
+                    normalized_existing = _normalize_dataframe_types(existing_data)
+                    for _, row in normalized_existing.iterrows():
+                        combo = (str(row['patient_id']), str(row['acquisition_date']), str(row['file_path']))
+                        processed_combinations.add(combo)
+                
+                print(f"Found existing output file with {len(processed_files)} already processed files")
+                print(f"Tracking {len(processed_combinations)} unique patient-date-file combinations")
+        except Exception as e:
+            print(f"Warning: Could not read existing output file {output_file}: {e}")
+            print("Will proceed with full processing")
+    
     # Get all DICOM files
-    dicom_files = []
+    all_dicom_files = []
     for root, dirs, files in os.walk(folder_path):
         for file in files:
             file_path = os.path.join(root, file)
             if (file.lower().endswith(('.dcm', '.dicom', '.ima')) or 
                 '.' not in file or
                 _is_dicom_file(file_path)):
-                dicom_files.append(file_path)
+                all_dicom_files.append(file_path)
+    
+    if not all_dicom_files:
+        print(f"No DICOM files found in {folder_path}")
+        return existing_data if output_format == 'dataframe' and not existing_data.empty else {}
+    
+    # Filter out already processed files using robust checking
+    dicom_files = []
+    skipped_count = 0
+    
+    for file_path in all_dicom_files:
+        relative_path = os.path.relpath(file_path, folder_path)
+        
+        # More robust check using patient ID and acquisition date
+        if processed_combinations:
+            try:
+                # Extract basic metadata without full processing
+                patient_id, acquisition_date = _extract_basic_metadata(file_path)
+                combo = (str(patient_id), str(acquisition_date), relative_path)
+                
+                if combo in processed_combinations:
+                    skipped_count += 1
+                    continue
+                    
+            except Exception as e:
+                print(f"Warning: Could not extract metadata from {file_path}: {e}")
+                # If we can't extract metadata, include the file for processing
+        
+        dicom_files.append(file_path)
     
     if not dicom_files:
-        print(f"No DICOM files found in {folder_path}")
-        return {}
+        print(f"All {len(all_dicom_files)} DICOM files have already been processed")
+        return existing_data if output_format == 'dataframe' and not existing_data.empty else {}
     
-    print(f"Found {len(dicom_files)} DICOM files. Extracting perfusion parameters...")
+    print(f"Found {len(all_dicom_files)} total DICOM files, {len(dicom_files)} new files to process ({skipped_count} already processed)")
     
-    # Extract perfusion parameters from each file
+    # Extract perfusion parameters from each new file
     extracted_data = {}
     
     for i, dicom_file in enumerate(dicom_files):
@@ -83,13 +146,26 @@ def extract_perfusion_parameters(folder_path: str,
     
     # Format output
     if output_format == 'dataframe':
-        result = _convert_to_dataframe(extracted_data)
-        # Drop duplicate rows to remove OCR duplicates
-        result = result.drop_duplicates(subset=['patient_id', 'acquisition_date', 'parameter_type', 'threshold', 'volume'], keep='first')
+        new_result = _convert_to_dataframe(extracted_data)
         # Drop rows with empty or NaN volume values
-        result = result.dropna(subset=['volume'])
-        result = result[result['volume'] != '']  # Also remove empty strings
-        result = result.reset_index(drop=True)
+        new_result = new_result.dropna(subset=['volume'])
+        new_result = new_result[new_result['volume'] != '']  # Also remove empty strings
+        new_result = new_result.reset_index(drop=True)
+        
+        # Combine with existing data if available
+        if not existing_data.empty:
+            # Ensure data type consistency before combining
+            existing_data = _normalize_dataframe_types(existing_data)
+            new_result = _normalize_dataframe_types(new_result)
+            
+            result = pd.concat([existing_data, new_result], ignore_index=True)
+            print(f"Combined {len(existing_data)} existing records with {len(new_result)} new records")
+        else:
+            result = new_result
+
+        # Drop duplicate rows to remove OCR duplicates (after type normalization)
+        result = result.drop_duplicates(subset=['patient_id', 'acquisition_date', 'parameter_type', 'threshold', 'volume'], keep='first')
+            
     elif output_format == 'json':
         result = json.dumps(extracted_data, indent=2, default=str)
     else:
@@ -373,6 +449,42 @@ def _extract_cbv_parameters(text: str) -> List[Dict[str, Any]]:
     return cbv_params
 
 
+def _extract_basic_metadata(file_path: str) -> tuple:
+    """
+    Extract basic metadata (patient_id, acquisition_date) from DICOM file without full processing.
+    
+    Returns:
+    --------
+    tuple: (patient_id, acquisition_date)
+    """
+    try:
+        ds = pydicom.dcmread(file_path, stop_before_pixels=True, force=True)
+        
+        # Extract PatientID
+        patient_id = None
+        try:
+            patient_id = str(ds.PatientID) if hasattr(ds, 'PatientID') and ds.PatientID else None
+        except Exception:
+            pass
+        
+        # Extract acquisition date
+        acquisition_date = None
+        try:
+            if hasattr(ds, 'AcquisitionDate') and ds.AcquisitionDate:
+                acquisition_date = str(ds.AcquisitionDate)
+            elif hasattr(ds, 'StudyDate') and ds.StudyDate:
+                acquisition_date = str(ds.StudyDate)
+            elif hasattr(ds, 'SeriesDate') and ds.SeriesDate:
+                acquisition_date = str(ds.SeriesDate)
+        except Exception:
+            pass
+            
+        return patient_id, acquisition_date
+        
+    except Exception:
+        return None, None
+
+
 def _is_dicom_file(file_path: str) -> bool:
     """Check if a file is a DICOM file."""
     try:
@@ -380,6 +492,57 @@ def _is_dicom_file(file_path: str) -> bool:
         return True
     except Exception:
         return False
+
+
+def Pourquoi ?_normalize_dataframe_types(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Normalize DataFrame column types to ensure consistency for duplicate detection.
+    
+    Parameters:
+    -----------
+    df : pd.DataFrame
+        DataFrame to normalize
+        
+    Returns:
+    --------
+    pd.DataFrame
+        DataFrame with normalized column types
+    """
+    if df.empty:
+        return df
+    
+    df = df.copy()
+    
+    # Normalize patient_id to string type
+    if 'patient_id' in df.columns:
+        df['patient_id'] = df['patient_id'].astype(str)
+    
+    # Normalize acquisition_date to string type
+    if 'acquisition_date' in df.columns:
+        df['acquisition_date'] = df['acquisition_date'].astype(str)
+    
+    # Normalize file_path to string type
+    if 'file_path' in df.columns:
+        df['file_path'] = df['file_path'].astype(str)
+    
+    # Normalize parameter_type to string type
+    if 'parameter_type' in df.columns:
+        df['parameter_type'] = df['parameter_type'].astype(str)
+    
+    # Normalize threshold to string type (since it can contain '<', '>', etc.)
+    if 'threshold' in df.columns:
+        df['threshold'] = df['threshold'].astype(str)
+    
+    # Normalize volume to float type
+    if 'volume' in df.columns:
+        # Handle non-numeric values by converting to NaN first
+        df['volume'] = pd.to_numeric(df['volume'], errors='coerce')
+    
+    # Normalize unit to string type
+    if 'unit' in df.columns:
+        df['unit'] = df['unit'].astype(str)
+    
+    return df
 
 
 def _convert_to_dataframe(data: Dict[str, Any]) -> pd.DataFrame:
@@ -449,7 +612,7 @@ def _convert_to_dataframe(data: Dict[str, Any]) -> pd.DataFrame:
 
 
 def _save_results(results, output_file: str, output_format: str):
-    """Save results to file."""
+    """Save results to file. For dataframe format, this overwrites the entire file with combined data."""
     if output_format == 'dataframe':
         if output_file.endswith('.csv'):
             results.to_csv(output_file, index=False)
@@ -473,7 +636,7 @@ def _save_results(results, output_file: str, output_format: str):
 def create_cli_parser() -> argparse.ArgumentParser:
     """Create command line interface parser."""
     parser = argparse.ArgumentParser(
-        description='Extract perfusion parameters (CBF, Tmax, CBV) from DICOM images using OCR',
+        description='Extract perfusion parameters (CBF, Tmax, CBV) from DICOM images using OCR. Supports incremental processing to avoid reprocessing existing files.',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -486,8 +649,19 @@ Examples:
   # Save to specific file path
   python extract_perfusion_parameters.py /path/to/dicom/folder --output-file /path/to/results.csv
   
+  # Incremental processing: if results.csv exists, only process new files
+  python extract_perfusion_parameters.py /path/to/dicom/folder --output-file results.csv
+  python extract_perfusion_parameters.py /path/to/new/dicom/folder --output-file results.csv  # appends new results
+  
   # Verbose output with custom filename
   python extract_perfusion_parameters.py /path/to/dicom/folder --output-file my_results.csv --verbose
+
+Incremental Processing:
+  If an output file already exists, the script will:
+  - Read the existing file to identify already processed files
+  - Only process DICOM files not already in the output
+  - Append new results to the existing data
+  - Save the combined dataset to the same file
         """
     )
     
@@ -504,7 +678,7 @@ Examples:
     
     parser.add_argument(
         '--output-file', '-o',
-        help='Output file path (default: perfusion_parameters.csv in input directory)'
+        help='Output file path (default: perfusion_parameters.csv in input directory). If file exists, only new files will be processed and results appended.'
     )
     
     parser.add_argument(
