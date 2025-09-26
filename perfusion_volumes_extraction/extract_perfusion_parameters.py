@@ -494,7 +494,7 @@ def _is_dicom_file(file_path: str) -> bool:
         return False
 
 
-def Pourquoi ?_normalize_dataframe_types(df: pd.DataFrame) -> pd.DataFrame:
+def _normalize_dataframe_types(df: pd.DataFrame) -> pd.DataFrame:
     """
     Normalize DataFrame column types to ensure consistency for duplicate detection.
     
