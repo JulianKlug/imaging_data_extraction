@@ -12,12 +12,14 @@ pyautogui.FAILSAFE = True
 SINGLE_MODALITY = True
 
 SLEEP_TIME = 10
-WAIT_FOR_DOWNLOAD_TIME = 30
+WAIT_FOR_DOWNLOAD_TIME = 45
 WAIT_BEFORE_SEARCH_TIME = 0.5
-WAIT_BEFORE_SELECT_ALL_TIME = 0.5
-WAIT_EVERY_5_PATIENTS = 180
+WAIT_BEFORE_SELECT_ALL_TIME = 1.2
+WAIT_EVERY_N_PATIENTS = 180
 DEFAULT_PYAUTOGUI_PAUSE = 0.6
 SAFE_MODE_PYAUTOGUI_PAUSE = 0.1
+
+BATCH_SIZE = 3
 
 if SINGLE_MODALITY:
     WAIT_FOR_DOWNLOAD_TIME = 0
@@ -200,7 +202,8 @@ def verify_modal_presence():
 
 
 def extract_n_patients(number_of_patients_to_extract, target_patients_path,
-                       dicom_db_path, output_dir, delete_unused, already_extracted_list_path=None, 
+                       dicom_db_path, output_dir, delete_unused, already_extracted_list_path=None,
+                       incoming_db_path=None, 
                        safe_mode=True, verbose=False):
     target_list = pd.read_csv(target_patients_path)
     
@@ -264,11 +267,17 @@ def extract_n_patients(number_of_patients_to_extract, target_patients_path,
                         safe_mode=safe_mode,
                         verbose=verbose)
         iteration_counter += 1
-        if iteration_counter == 5:
-            print(f'Waiting {WAIT_EVERY_5_PATIENTS}s every 5 patients...')
+        if iteration_counter == BATCH_SIZE:
             iteration_counter = 0
-            time.sleep(WAIT_EVERY_5_PATIENTS)
-        
+            if incoming_db_path is not None:
+                # wait until incoming_db_path is empty
+                print('Waiting for incoming_db_path to be empty...')
+                while os.listdir(incoming_db_path):
+                    time.sleep(3)
+            else:
+                print(f'Waiting {WAIT_EVERY_N_PATIENTS}s every {BATCH_SIZE} patients...')
+                time.sleep(WAIT_EVERY_N_PATIENTS)
+            
     return already_extracted_df 
 
 
@@ -280,6 +289,8 @@ def main():
                         help='Path to the CSV file containing target patients')
     parser.add_argument('-d', '--dicom_db_path', type=str, required=True,
                         help='Path to the DICOM database')
+    parser.add_argument('-idb', '--incoming_db_path', type=str, required=True,
+                        help='Path to the incoming DICOM database')
     parser.add_argument('-o', '--output_dir', type=str, required=True,
                         help='Path to the output directory')
     parser.add_argument('-r', '--delete_unused', action='store_true',
@@ -312,7 +323,8 @@ def main():
                                             already_extracted_list_path=already_extracted_list_path,
                                             delete_unused=args.delete_unused,
                                             safe_mode=args.safe_mode,
-                                            verbose=args.verbose)
+                                            verbose=args.verbose,
+                                            incoming_db_path=args.incoming_db_path)
     print(f'Extracted {len(extracted_patients)} patients.')
 
 if __name__ == '__main__':
