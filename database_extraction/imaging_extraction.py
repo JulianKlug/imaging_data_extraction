@@ -14,12 +14,13 @@ SINGLE_MODALITY = True
 SLEEP_TIME = 10
 WAIT_FOR_DOWNLOAD_TIME = 45
 WAIT_BEFORE_SEARCH_TIME = 0.5
-WAIT_BEFORE_SELECT_ALL_TIME = 1.2
+WAIT_BEFORE_SELECT_ALL_TIME = 2.25
 WAIT_EVERY_N_PATIENTS = 180
+WAIT_FOR_INCOMING_DB_TIME = 1.5
 DEFAULT_PYAUTOGUI_PAUSE = 0.6
 SAFE_MODE_PYAUTOGUI_PAUSE = 0.1
 
-BATCH_SIZE = 3
+BATCH_SIZE = 1
 
 if SINGLE_MODALITY:
     WAIT_FOR_DOWNLOAD_TIME = 0
@@ -44,7 +45,8 @@ COORDINATES = {
     'transfer_button': (1243, 693),
     'confirm_transfer_button': (1212, 729),
     'confirm_transfer_button_with_error': (1208, 773),
-    'close_patient_button': (653, 291)
+    'close_patient_button': (653, 291),
+    'osirix_popup_ok': (1118,525)
 }
 
 def extract_patient(patient_id, 
@@ -200,23 +202,13 @@ def verify_modal_presence():
 
     return False
 
-
-def extract_n_patients(number_of_patients_to_extract, target_patients_path,
-                       dicom_db_path, output_dir, delete_unused, already_extracted_list_path=None,
-                       incoming_db_path=None, 
-                       safe_mode=True, verbose=False):
-    target_list = pd.read_csv(target_patients_path)
-    
-    if already_extracted_list_path is not None:
-        already_extracted_df = pd.read_csv(already_extracted_list_path)
-        target_list = target_list[~target_list['patient_id'].isin(already_extracted_df['patient_id'])]
-    else:
-        already_extracted_list_path = os.path.join(os.path.dirname(target_patients_path), 'already_extracted.csv')
-        if os.path.isfile(already_extracted_list_path):
-            already_extracted_df = pd.read_csv(already_extracted_list_path)
-            target_list = target_list[~target_list['patient_id'].isin(already_extracted_df['patient_id'])]
-        else:
-            already_extracted_df = pd.DataFrame()
+def extract_target_and_clean_dicom_db(dicom_db_path, output_dir, 
+                            already_extracted_list_path, target_list, 
+                            already_extracted_df,
+                            delete_unused=False, verbose=False):
+    """
+    Extract RAPID files for patients already in the dicom_db_path and clean up the DICOM DB.
+    """
 
     # find all pids already extracted in the dicom_db_path and copy their files to output_dir
     found_pids, pids_without_rapid = find_pids_already_extracted(dicom_db_path, output_dir, delete_unused, verbose)
@@ -246,11 +238,39 @@ def extract_n_patients(number_of_patients_to_extract, target_patients_path,
                 except OSError as e:
                     if verbose:
                         print(f"Error deleting folder {subfolder_path}: {e}")
-    
+
+        # delete Database.sql file in the parent directory of dicom_db_path
+        os.remove(os.path.join(os.path.dirname(dicom_db_path),'Database.sql'))
+
     if verbose:
         # print number of patients already extracted, and number of patients to extract
-        print(f'Number of patients already extracted: {len(already_extracted_df)}')
-        print(f'Number of patients to extract: {len(target_list)}')
+        print(f'Number of patients already extracted: {len(already_extracted_df)} (remaining {len(target_list)})')
+
+    return target_list, already_extracted_df
+
+
+def extract_n_patients(number_of_patients_to_extract, target_patients_path,
+                       dicom_db_path, output_dir, delete_unused, already_extracted_list_path=None,
+                       incoming_db_path=None, 
+                       safe_mode=True, verbose=False):
+    target_list = pd.read_csv(target_patients_path)
+    
+    if already_extracted_list_path is not None:
+        already_extracted_df = pd.read_csv(already_extracted_list_path)
+        target_list = target_list[~target_list['patient_id'].isin(already_extracted_df['patient_id'])]
+    else:
+        already_extracted_list_path = os.path.join(os.path.dirname(target_patients_path), 'already_extracted.csv')
+        if os.path.isfile(already_extracted_list_path):
+            already_extracted_df = pd.read_csv(already_extracted_list_path)
+            target_list = target_list[~target_list['patient_id'].isin(already_extracted_df['patient_id'])]
+        else:
+            already_extracted_df = pd.DataFrame()
+    
+    # extract rapid files for patients already in dicom_db_path
+    target_list, already_extracted_df = extract_target_and_clean_dicom_db(dicom_db_path, output_dir,
+                                                                        already_extracted_list_path, target_list,
+                                                                        already_extracted_df,
+                                                                        delete_unused=delete_unused, verbose=verbose)
 
     iteration_counter = 0
     for pidx in range(number_of_patients_to_extract):
@@ -273,7 +293,18 @@ def extract_n_patients(number_of_patients_to_extract, target_patients_path,
                 # wait until incoming_db_path is empty
                 print('Waiting for incoming_db_path to be empty...')
                 while os.listdir(incoming_db_path):
-                    time.sleep(3)
+                    windows = list_open_windows()
+                    osirix_windows = [w for w in windows if w[0] == "OsiriX MD"]
+                    if len(osirix_windows) > 2:
+                        pyautogui.click(COORDINATES['osirix_popup_ok'])
+                    time.sleep(WAIT_FOR_INCOMING_DB_TIME)
+
+                # extract rapid files for patients already in dicom_db_path
+                _, _ = extract_target_and_clean_dicom_db(dicom_db_path, output_dir,
+                                                        already_extracted_list_path, target_list,
+                                                        already_extracted_df,
+                                                        delete_unused=delete_unused, verbose=verbose)
+                
             else:
                 print(f'Waiting {WAIT_EVERY_N_PATIENTS}s every {BATCH_SIZE} patients...')
                 time.sleep(WAIT_EVERY_N_PATIENTS)

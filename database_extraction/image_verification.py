@@ -65,7 +65,7 @@ def verify_rapid_presence(pid, dicom_db_path, output_dir, delete_unused=False, v
                             if verbose:
                                 print(f"RAPID file identified for patient {pid}: {file_path}")
                             # Optionally, copy the file to output_dir
-                            shutil.copy(file_path, output_dir)
+                            shutil.copy(file_path, os.path.join(output_dir, f'{pid}_' + file))
                             return True
                         
                         else:
@@ -103,8 +103,7 @@ def find_pids_already_extracted(dicom_db_path, output_dir, delete_unused=False, 
                     if is_rapid_file(ds):
                         pids_with_rapid.append(pid)
                         # copy the file to output_dir
-                        shutil.copy(file_path, os.path.join(output_dir, f'{pid}_' + file))
-                    
+                        shutil.copy(file_path, output_dir)
                         if verbose:
                             print(f"RAPID file identified for patient {pid}: {file_path}")
                     if delete_unused:
@@ -114,7 +113,7 @@ def find_pids_already_extracted(dicom_db_path, output_dir, delete_unused=False, 
                         print(f"Error reading {file_path}: {e}")
     # Remove duplicates
     pids_with_rapid = list(set(pids_with_rapid))
-    pids_without_rapid = pids_screened - set(pids_with_rapid)
+    pids_without_rapid = pids_screened - set(pids_with_rapid)   
 
     if verbose:
         print(f"Found {len(pids_with_rapid)} unique patient IDs with RAPID files in {dicom_db_path}.")
