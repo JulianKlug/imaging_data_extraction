@@ -103,7 +103,7 @@ def find_pids_already_extracted(dicom_db_path, output_dir, delete_unused=False, 
                     if is_rapid_file(ds):
                         pids_with_rapid.append(pid)
                         # copy the file to output_dir
-                        shutil.copy(file_path, output_dir)
+                        shutil.copy(file_path, os.path.join(output_dir, f'{pid}_' + file))
                         if verbose:
                             print(f"RAPID file identified for patient {pid}: {file_path}")
                     if delete_unused:

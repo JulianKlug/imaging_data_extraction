@@ -6,6 +6,7 @@ import argparse
 import time
 from image_verification import find_pids_already_extracted, verify_rapid_presence
 from list_open_windows_mac import list_open_windows
+from launch_pacs import launch_osirix_pacs, kill_osirix_pacs
 
 pyautogui.FAILSAFE = True
 
@@ -52,12 +53,13 @@ COORDINATES = {
 def extract_patient(patient_id, 
                     dicom_db_path,
                     output_dir,
+                    path_to_identifiers_file,
                     delete_unused=False,
                     safe_mode=True,
                     verbose=False):
     
     # verify that osirix is open
-    ensure_osirix_open()
+    ensure_osirix_open(path_to_identifiers_file, verbose=verbose)
 
     verify_modal_failsafe(safe_mode=safe_mode)
     print(f'Extracting data for patient {patient_id}...')
@@ -168,11 +170,17 @@ def extract_patient(patient_id,
   
     return 
 
-def ensure_osirix_open():
+def ensure_osirix_open(path_to_identifiers_file,
+                      verbose=False):
     windows = list_open_windows()
     osirix_windows = [w for w in windows if w[0] == "OsiriX MD"]    
     if len(osirix_windows) < 2:
-        raise Exception('Osirix or Compacs are not open!')
+        if path_to_identifiers_file is None:
+            raise Exception('Osirix or Compacs are not open!')
+        else:
+            print('Osirix or Compacs are not open! Attempting to re-open Osirix...')
+            kill_osirix_pacs()
+            launch_osirix_pacs(path_to_identifiers_file, verbose=verbose)
     return 
 
 def verify_modal_failsafe(safe_mode=True):
@@ -250,7 +258,9 @@ def extract_target_and_clean_dicom_db(dicom_db_path, output_dir,
 
 
 def extract_n_patients(number_of_patients_to_extract, target_patients_path,
-                       dicom_db_path, output_dir, delete_unused, already_extracted_list_path=None,
+                       dicom_db_path, output_dir, delete_unused, 
+                       path_to_identifiers_file,
+                       already_extracted_list_path=None,
                        incoming_db_path=None, 
                        safe_mode=True, verbose=False):
     target_list = pd.read_csv(target_patients_path)
@@ -283,6 +293,7 @@ def extract_n_patients(number_of_patients_to_extract, target_patients_path,
         extract_patient(patient_id, 
                         dicom_db_path=dicom_db_path,
                         output_dir=output_dir,
+                        path_to_identifiers_file=path_to_identifiers_file,
                         delete_unused=delete_unused,
                         safe_mode=safe_mode,
                         verbose=verbose)
@@ -297,6 +308,7 @@ def extract_n_patients(number_of_patients_to_extract, target_patients_path,
                     osirix_windows = [w for w in windows if w[0] == "OsiriX MD"]
                     if len(osirix_windows) > 2:
                         pyautogui.click(COORDINATES['osirix_popup_ok'])
+                    ensure_osirix_open(path_to_identifiers_file, verbose=verbose)
                     time.sleep(WAIT_FOR_INCOMING_DB_TIME)
 
                 # extract rapid files for patients already in dicom_db_path
@@ -320,6 +332,8 @@ def main():
                         help='Path to the CSV file containing target patients')
     parser.add_argument('-d', '--dicom_db_path', type=str, required=True,
                         help='Path to the DICOM database')
+    parser.add_argument('-p', '--path_to_identifiers_file', type=str, required=False, default=None,
+                        help='Path to the file containing PACS identifiers (username and password)')
     parser.add_argument('-idb', '--incoming_db_path', type=str, required=True,
                         help='Path to the incoming DICOM database')
     parser.add_argument('-o', '--output_dir', type=str, required=True,
@@ -351,6 +365,7 @@ def main():
     extracted_patients = extract_n_patients(args.number_of_patients_to_extract, args.target_patients_path,
                                             dicom_db_path=args.dicom_db_path,
                                             output_dir=args.output_dir,
+                                            path_to_identifiers_file=args.path_to_identifiers_file,
                                             already_extracted_list_path=already_extracted_list_path,
                                             delete_unused=args.delete_unused,
                                             safe_mode=args.safe_mode,
