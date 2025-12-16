@@ -1,12 +1,10 @@
 import os
-import sys
 import pandas as pd
 import pyautogui
 import argparse
 import time
-from image_verification import find_pids_already_extracted, verify_rapid_presence
-from list_open_windows_mac import list_open_windows
-from launch_pacs import launch_osirix_pacs, kill_osirix_pacs
+from utils import ensure_osirix_open, verify_modal_failsafe, wait_until_empty_for
+from image_verification import find_pids_already_extracted
 
 pyautogui.FAILSAFE = True
 
@@ -17,7 +15,7 @@ WAIT_FOR_DOWNLOAD_TIME = 45
 WAIT_BEFORE_SEARCH_TIME = 0.5
 WAIT_BEFORE_SELECT_ALL_TIME = 2.25
 WAIT_EVERY_N_PATIENTS = 180
-WAIT_FOR_INCOMING_DB_TIME = 1.5
+WAIT_FOR_INCOMING_DB_TIME = 5
 DEFAULT_PYAUTOGUI_PAUSE = 0.6
 SAFE_MODE_PYAUTOGUI_PAUSE = 0.1
 
@@ -170,45 +168,6 @@ def extract_patient(patient_id,
   
     return 
 
-def ensure_osirix_open(path_to_identifiers_file,
-                      verbose=False):
-    windows = list_open_windows()
-    osirix_windows = [w for w in windows if w[0] == "OsiriX MD"]    
-    if len(osirix_windows) < 2:
-        if path_to_identifiers_file is None:
-            raise Exception('Osirix or Compacs are not open!')
-        else:
-            print('Osirix or Compacs are not open! Attempting to re-open Osirix...')
-            kill_osirix_pacs()
-            launch_osirix_pacs(path_to_identifiers_file, verbose=verbose)
-    return 
-
-def verify_modal_failsafe(safe_mode=True):
-    if not safe_mode:
-        return
-    if verify_modal_presence():
-        sys.exit("Error message")
-
-
-def verify_modal_presence():
-    """
-    Verify if a modal dialog is present on the screen.
-    """
-    # modals to verify 
-    # check all png files in modal directory (current file is in the same directory as the modal directory)
-    current_file_directory = os.path.dirname(os.path.abspath(__file__))
-    modal_directory = os.path.join(current_file_directory, 'modals')
-    modal_files = [f for f in os.listdir(modal_directory) if f.endswith('.png')]
-    for modal_file in modal_files:
-        modal_path = os.path.join(modal_directory, modal_file)
-        try:
-            if pyautogui.locateOnScreen(modal_path) is not None:
-                print(f'Modal dialog {modal_file} is present on the screen.')
-                return True
-        except Exception as e:
-            pass  # If the image is not found, continue to the next one
-
-    return False
 
 def extract_target_and_clean_dicom_db(dicom_db_path, output_dir, 
                             already_extracted_list_path, target_list, 
@@ -303,13 +262,17 @@ def extract_n_patients(number_of_patients_to_extract, target_patients_path,
             if incoming_db_path is not None:
                 # wait until incoming_db_path is empty
                 print('Waiting for incoming_db_path to be empty...')
-                while os.listdir(incoming_db_path):
-                    windows = list_open_windows()
-                    osirix_windows = [w for w in windows if w[0] == "OsiriX MD"]
-                    if len(osirix_windows) > 2:
-                        pyautogui.click(COORDINATES['osirix_popup_ok'])
-                    ensure_osirix_open(path_to_identifiers_file, verbose=verbose)
-                    time.sleep(WAIT_FOR_INCOMING_DB_TIME)
+                wait_until_empty_for(incoming_db_path, T=WAIT_FOR_INCOMING_DB_TIME,
+                                     coordinates=COORDINATES,
+                                     path_to_identifiers_file=path_to_identifiers_file,
+                                     verbose=verbose)
+                # while os.listdir(incoming_db_path):
+                #     windows = list_open_windows()
+                #     osirix_windows = [w for w in windows if w[0] == "OsiriX MD"]
+                #     if len(osirix_windows) > 2:
+                #         pyautogui.click(COORDINATES['osirix_popup_ok'])
+                #     ensure_osirix_open(path_to_identifiers_file, verbose=verbose)
+                #     time.sleep(WAIT_FOR_INCOMING_DB_TIME)
 
                 # extract rapid files for patients already in dicom_db_path
                 # _, _ = extract_target_and_clean_dicom_db(dicom_db_path, output_dir,
