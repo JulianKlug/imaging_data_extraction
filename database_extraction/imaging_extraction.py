@@ -267,12 +267,12 @@ def extract_n_patients(number_of_patients_to_extract, target_patients_path,
     
     if already_extracted_list_path is not None:
         already_extracted_df = pd.read_csv(already_extracted_list_path)
-        target_list = target_list[~target_list['patient_id'].isin(already_extracted_df['patient_id'])]
+        target_list = target_list[~target_list['patient_id'].astype(str).isin(already_extracted_df['patient_id'].astype(str))]
     else:
         already_extracted_list_path = os.path.join(os.path.dirname(target_patients_path), 'already_extracted.csv')
         if os.path.isfile(already_extracted_list_path):
             already_extracted_df = pd.read_csv(already_extracted_list_path)
-            target_list = target_list[~target_list['patient_id'].isin(already_extracted_df['patient_id'])]
+            target_list = target_list[~target_list['patient_id'].astype(str).isin(already_extracted_df['patient_id'].astype(str))]
         else:
             already_extracted_df = pd.DataFrame()
     
@@ -312,10 +312,10 @@ def extract_n_patients(number_of_patients_to_extract, target_patients_path,
                     time.sleep(WAIT_FOR_INCOMING_DB_TIME)
 
                 # extract rapid files for patients already in dicom_db_path
-                _, _ = extract_target_and_clean_dicom_db(dicom_db_path, output_dir,
-                                                        already_extracted_list_path, target_list,
-                                                        already_extracted_df,
-                                                        delete_unused=delete_unused, verbose=verbose)
+                # _, _ = extract_target_and_clean_dicom_db(dicom_db_path, output_dir,
+                #                                         already_extracted_list_path, target_list,
+                #                                         already_extracted_df,
+                #                                         delete_unused=delete_unused, verbose=verbose)
                 
             else:
                 print(f'Waiting {WAIT_EVERY_N_PATIENTS}s every {BATCH_SIZE} patients...')
