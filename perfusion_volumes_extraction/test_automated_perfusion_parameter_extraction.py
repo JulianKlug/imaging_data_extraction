@@ -34,6 +34,20 @@ def test_automated_perfusion_parameter_extraction(automatically_extracted_perfus
         ground_truth_df = pd.read_excel(ground_truth_perfusion_parameters_file)
     else:
         ground_truth_df = pd.read_csv(ground_truth_perfusion_parameters_file)
+
+    # list of patients only present in ground truth
+    patients_only_in_ground_truth = set(ground_truth_df['patient_id']) - set(extracted_df['patient_id'])
+    patients_only_in_ground_truth_df = ground_truth_df[ground_truth_df['patient_id'].isin(patients_only_in_ground_truth)]
+    
+    # only retain patients with perfusion data (CTP_present == 1)
+    patients_only_in_ground_truth_df = patients_only_in_ground_truth_df[patients_only_in_ground_truth_df['CTP_present'] == 1]
+    # drop columns
+    patients_only_in_ground_truth_df = patients_only_in_ground_truth_df.drop(columns=['CTP_present', 'T10', 'T8', 'T6', 'T4', 'CBF', 'CTP_artefacted', 'Comment'])
+
+    # save to csv in the same directory as the extracted file
+    extracted_dir = os.path.dirname(os.path.abspath(automatically_extracted_perfusion_parameters_file))
+    patients_only_in_ground_truth_file = os.path.join(extracted_dir, 'missing_from_extractions.csv')
+    patients_only_in_ground_truth_df.to_csv(patients_only_in_ground_truth_file, index=False)
     
     # Convert acquisition_date to datetime format (YYYYMMDD to YYYY-MM-DD)
     extracted_df['acquisition_date'] = pd.to_datetime(extracted_df['acquisition_date'], format='%Y%m%d')
