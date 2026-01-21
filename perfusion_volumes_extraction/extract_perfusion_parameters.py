@@ -1,4 +1,5 @@
 import os
+from datetime import datetime
 import pydicom
 import numpy as np
 import cv2
@@ -33,7 +34,7 @@ def extract_perfusion_parameters(folder_path: str,
     Returns:
     --------
     Dict[str, Any] or pd.DataFrame
-        Extracted perfusion parameters including PatientID, file information, and measurements
+        Extracted perfusion parameters including PatientID, acquisition time, file information, and measurements
         
     Notes:
     ------
@@ -41,6 +42,7 @@ def extract_perfusion_parameters(folder_path: str,
     - patient_id: DICOM PatientID field
     - file_path: path to the DICOM file  
     - acquisition_date: DICOM acquisition/study/series date
+    - acquisition_time: DICOM acquisition/study/series time
     - parameter_type: 'CBF', 'Tmax', or 'CBV'
     - threshold: parameter threshold (e.g., '<20%', '>6s', '<2.0ml/100g')
     - volume: measured volume value
@@ -76,7 +78,12 @@ def extract_perfusion_parameters(folder_path: str,
                     # Normalize the existing data first to ensure consistent string conversion
                     normalized_existing = _normalize_dataframe_types(existing_data)
                     for _, row in normalized_existing.iterrows():
-                        combo = (str(row['patient_id']), str(row['acquisition_date']), str(row['file_path']))
+                        combo = (
+                            str(row['patient_id']),
+                            str(row['acquisition_date']),
+                            str(row.get('acquisition_time', '')),
+                            str(row['file_path'])
+                        )
                         processed_combinations.add(combo)
                 
                 print(f"Found existing output file with {len(processed_files)} already processed files")
@@ -106,12 +113,12 @@ def extract_perfusion_parameters(folder_path: str,
     for file_path in all_dicom_files:
         relative_path = os.path.relpath(file_path, folder_path)
         
-        # More robust check using patient ID and acquisition date
+        # More robust check using patient ID and acquisition date/time
         if processed_combinations:
             try:
                 # Extract basic metadata without full processing
-                patient_id, acquisition_date = _extract_basic_metadata(file_path)
-                combo = (str(patient_id), str(acquisition_date), relative_path)
+                patient_id, acquisition_date, acquisition_time = _extract_basic_metadata(file_path)
+                combo = (str(patient_id), str(acquisition_date), str(acquisition_time), relative_path)
                 
                 if combo in processed_combinations:
                     skipped_count += 1
@@ -164,7 +171,7 @@ def extract_perfusion_parameters(folder_path: str,
             result = new_result
 
         # Drop duplicate rows to remove OCR duplicates (after type normalization)
-        result = result.drop_duplicates(subset=['patient_id', 'acquisition_date', 'parameter_type', 'threshold', 'volume'], keep='first')
+        result = result.drop_duplicates(subset=['patient_id', 'acquisition_date', 'acquisition_time', 'parameter_type', 'threshold', 'volume'], keep='first')
             
     elif output_format == 'json':
         result = json.dumps(extracted_data, indent=2, default=str)
@@ -174,7 +181,9 @@ def extract_perfusion_parameters(folder_path: str,
     # Save to file if requested
     if save_to_file:
         if output_file is None:
-            output_file = f"perfusion_parameters.{output_format if output_format != 'dict' else 'json'}"
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            extension = output_format if output_format != 'dict' else 'json'
+            output_file = f"perfusion_parameters_{timestamp}.{extension}"
         
         _save_results(result, output_file, output_format)
         print(f"Results saved to: {output_file}")
@@ -192,6 +201,7 @@ def extract_single_file_perfusion_params(file_path: str) -> Dict[str, Any]:
     - file_info: basic file information
     - patient_id: DICOM PatientID field
     - acquisition_date: DICOM acquisition/study/series date
+    - acquisition_time: DICOM acquisition/study/series time
     - cbf_parameters: list of CBF measurements with thresholds and volumes
     - tmax_parameters: list of Tmax measurements with thresholds and volumes
     - cbv_parameters: list of CBV measurements with thresholds and volumes
@@ -219,11 +229,22 @@ def extract_single_file_perfusion_params(file_path: str) -> Dict[str, Any]:
             acquisition_date = str(ds.SeriesDate)
     except Exception as e:
         print(f"Warning: Could not extract acquisition date from {file_path}: {e}")
+
+    # Extract acquisition time (best-effort)
+    acquisition_time = None
+    try:
+        if hasattr(ds, 'AcquisitionTime') and ds.AcquisitionTime:
+            acquisition_time = str(ds.AcquisitionTime)
+        elif hasattr(ds, 'SeriesTime') and ds.SeriesTime:
+            acquisition_time = str(ds.SeriesTime)
+    except Exception as e:
+        print(f"Warning: Could not extract acquisition time from {file_path}: {e}")
     
     result = {
         'file_path': file_path,
         'patient_id': patient_id,
         'acquisition_date': acquisition_date,
+        'acquisition_time': acquisition_time,
         'cbf_parameters': [],
         'tmax_parameters': [],
         'cbv_parameters': [],
@@ -451,11 +472,11 @@ def _extract_cbv_parameters(text: str) -> List[Dict[str, Any]]:
 
 def _extract_basic_metadata(file_path: str) -> tuple:
     """
-    Extract basic metadata (patient_id, acquisition_date) from DICOM file without full processing.
-    
+    Extract basic metadata (patient_id, acquisition_date, acquisition_time) from DICOM file without full processing.
+
     Returns:
     --------
-    tuple: (patient_id, acquisition_date)
+    tuple: (patient_id, acquisition_date, acquisition_time)
     """
     try:
         ds = pydicom.dcmread(file_path, stop_before_pixels=True, force=True)
@@ -478,11 +499,23 @@ def _extract_basic_metadata(file_path: str) -> tuple:
                 acquisition_date = str(ds.SeriesDate)
         except Exception:
             pass
+
+        # Extract acquisition time
+        acquisition_time = None
+        try:
+            if hasattr(ds, 'AcquisitionTime') and ds.AcquisitionTime:
+                acquisition_time = str(ds.AcquisitionTime)
+            elif hasattr(ds, 'StudyTime') and ds.StudyTime:
+                acquisition_time = str(ds.StudyTime)
+            elif hasattr(ds, 'SeriesTime') and ds.SeriesTime:
+                acquisition_time = str(ds.SeriesTime)
+        except Exception:
+            pass
             
-        return patient_id, acquisition_date
+        return patient_id, acquisition_date, acquisition_time
         
     except Exception:
-        return None, None
+        return None, None, None
 
 
 def _is_dicom_file(file_path: str) -> bool:
@@ -524,6 +557,10 @@ def _normalize_dataframe_types(df: pd.DataFrame) -> pd.DataFrame:
     # Normalize file_path to string type
     if 'file_path' in df.columns:
         df['file_path'] = df['file_path'].astype(str)
+
+    # Normalize acquisition_time to string type
+    if 'acquisition_time' in df.columns:
+        df['acquisition_time'] = df['acquisition_time'].astype(str)
     
     # Normalize parameter_type to string type
     if 'parameter_type' in df.columns:
@@ -554,6 +591,7 @@ def _convert_to_dataframe(data: Dict[str, Any]) -> pd.DataFrame:
             'file_path': file_path,
             'patient_id': file_data.get('patient_id'),
             'acquisition_date': file_data.get('acquisition_date'),
+            'acquisition_time': file_data.get('acquisition_time'),
             'error': file_data.get('error')
         }
         
@@ -721,7 +759,8 @@ def main():
         # Generate default output file path in input directory if not specified
         output_file = args.output_file
         if save_to_file and output_file is None:
-            output_file = os.path.join(args.folder_path, "perfusion_parameters.csv")
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_file = os.path.join(args.folder_path, f"perfusion_parameters_{timestamp}.csv")
         
         # Extract perfusion parameters (always use dataframe format)
         results = extract_perfusion_parameters(
