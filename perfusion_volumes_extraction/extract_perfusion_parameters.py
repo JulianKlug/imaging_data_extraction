@@ -12,6 +12,8 @@ import re
 import argparse
 import sys
 
+from perfusion_volumes_extraction.extract_meta_data import _extract_basic_metadata
+
 
 def extract_perfusion_parameters(folder_path: str,
                                output_format: str = 'dict',
@@ -468,54 +470,6 @@ def _extract_cbv_parameters(text: str) -> List[Dict[str, Any]]:
             cbv_params.append(cbv_param)
     
     return cbv_params
-
-
-def _extract_basic_metadata(file_path: str) -> tuple:
-    """
-    Extract basic metadata (patient_id, acquisition_date, acquisition_time) from DICOM file without full processing.
-
-    Returns:
-    --------
-    tuple: (patient_id, acquisition_date, acquisition_time)
-    """
-    try:
-        ds = pydicom.dcmread(file_path, stop_before_pixels=True, force=True)
-        
-        # Extract PatientID
-        patient_id = None
-        try:
-            patient_id = str(ds.PatientID) if hasattr(ds, 'PatientID') and ds.PatientID else None
-        except Exception:
-            pass
-        
-        # Extract acquisition date
-        acquisition_date = None
-        try:
-            if hasattr(ds, 'AcquisitionDate') and ds.AcquisitionDate:
-                acquisition_date = str(ds.AcquisitionDate)
-            elif hasattr(ds, 'StudyDate') and ds.StudyDate:
-                acquisition_date = str(ds.StudyDate)
-            elif hasattr(ds, 'SeriesDate') and ds.SeriesDate:
-                acquisition_date = str(ds.SeriesDate)
-        except Exception:
-            pass
-
-        # Extract acquisition time
-        acquisition_time = None
-        try:
-            if hasattr(ds, 'AcquisitionTime') and ds.AcquisitionTime:
-                acquisition_time = str(ds.AcquisitionTime)
-            elif hasattr(ds, 'StudyTime') and ds.StudyTime:
-                acquisition_time = str(ds.StudyTime)
-            elif hasattr(ds, 'SeriesTime') and ds.SeriesTime:
-                acquisition_time = str(ds.SeriesTime)
-        except Exception:
-            pass
-            
-        return patient_id, acquisition_date, acquisition_time
-        
-    except Exception:
-        return None, None, None
 
 
 def _is_dicom_file(file_path: str) -> bool:
